@@ -36,7 +36,6 @@ async def login(body: LoginRequest) -> LoginResponse:
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(url, json=payload)
         if r.status_code != 200:
-            # Propaga el error que devuelve Google
             raise HTTPException(status_code=400, detail=r.json())
         data = r.json()
 

@@ -12,7 +12,6 @@ router = APIRouter(prefix="/time-entries", tags=["time-entries"])
 
 @router.post("/clock-in", response_model=TimeEntryOut)
 async def clock_in(payload: ClockInRequest, session: AsyncSession = Depends(get_session), employee=Depends(get_current_employee)):
-    # Evitar dos entradas abiertas
     q = await session.execute(select(TimeEntry).where(and_(TimeEntry.employee_id == employee.id, TimeEntry.clock_out.is_(None))))
     open_entry = q.scalar_one_or_none()
     if open_entry:
@@ -48,7 +47,7 @@ async def list_entries(
     start: datetime | None = None,
     end: datetime | None = None,
     session: AsyncSession = Depends(get_session),
-    _=Depends(get_current_employee)  # empleado autenticado (empleado o admin con claims)
+    _=Depends(get_current_employee)  
 ):
     stmt = select(TimeEntry)
     if employee_id:
