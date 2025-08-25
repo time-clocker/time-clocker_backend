@@ -1,8 +1,8 @@
-"""init tables
+"""init
 
-Revision ID: eb43bda39f6c
+Revision ID: e6b9fbb7ccee
 Revises: 
-Create Date: 2025-08-21 00:50:48.750295
+Create Date: 2025-08-24 23:28:56.880622
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'eb43bda39f6c'
+revision: str = 'e6b9fbb7ccee'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -25,11 +25,14 @@ def upgrade() -> None:
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('firebase_uid', sa.String(length=128), nullable=False),
     sa.Column('full_name', sa.String(length=200), nullable=False),
+    sa.Column('doc_type', sa.String(length=30), nullable=True),
+    sa.Column('doc_number', sa.String(length=64), nullable=True),
     sa.Column('email', sa.String(length=200), nullable=False),
     sa.Column('hourly_rate', sa.Float(), nullable=False),
     sa.Column('active', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('doc_number')
     )
     op.create_index(op.f('ix_employees_email'), 'employees', ['email'], unique=True)
     op.create_index(op.f('ix_employees_firebase_uid'), 'employees', ['firebase_uid'], unique=True)
