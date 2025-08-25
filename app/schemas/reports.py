@@ -29,7 +29,6 @@ class EmployeeMini(BaseModel):
     email: str
     hourly_rate: float
 
-
 class EmployeeReportOut(BaseModel):
     employee: EmployeeMini
     range: RangeOut
@@ -37,13 +36,11 @@ class EmployeeReportOut(BaseModel):
     pie_hours: PieHours
     totals: Dict[str, float] 
 
-
 class GlobalRow(BaseModel):
     employee_id: str
     full_name: str
     hours: PieHours
     pay_total: float
-
 
 class GlobalReportOut(BaseModel):
     range: RangeOut
@@ -60,7 +57,6 @@ class EmployeeSummary(BaseModel):
     total_amount: float
     start: datetime
     end: datetime
-
 
 class GlobalSummary(BaseModel):
     start: datetime
