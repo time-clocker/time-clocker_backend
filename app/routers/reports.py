@@ -25,10 +25,6 @@ from app.services.reports import (
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
-# ---------------------------
-# Helpers internos existentes
-# ---------------------------
-
 async def _get_employee(session: AsyncSession, employee_id: str) -> Employee:
     q = await session.execute(select(Employee).where(Employee.id == employee_id))
     emp = q.scalar_one_or_none()
@@ -60,8 +56,8 @@ def _week_bounds_sun_to_sat(ref: datetime, tz: str) -> tuple[datetime, datetime]
     ref_local = ref.astimezone(ZoneInfo(tz))
     d = ref_local.date()
     days_since_sunday = (ref_local.weekday() + 1) % 7
-    start_date = d - timedelta(days=days_since_sunday)  # domingo
-    end_date = start_date + timedelta(days=6)           # sábado
+    start_date = d - timedelta(days=days_since_sunday)  
+    end_date = start_date + timedelta(days=6)           
     tzinfo = ZoneInfo(tz)
     start_dt = datetime.combine(start_date, time(0, 0, 0), tzinfo=tzinfo)
     end_dt = datetime.combine(end_date, time(23, 59, 59), tzinfo=tzinfo)
@@ -122,9 +118,16 @@ async def global_report(
     if role != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
 
-    # empleados activos
     employees: List[Employee] = (
-        await session.execute(select(Employee).where(Employee.active.is_(True)))
+        await session.execute(
+            select(Employee).where(
+                and_(
+                    Employee.active.is_(True),
+                    Employee.hourly_rate > 0,
+                    Employee.firebase_uid != user.get("uid"),
+                )
+            )
+        )
     ).scalars().all()
     if not employees:
         return {
@@ -133,7 +136,6 @@ async def global_report(
             "totals": {"hours_total": 0.0, "pay_total": 0.0},
         }
 
-    # time entries por empleado en el rango
     entries_by_emp: Dict[str, List[TimeEntry]] = {}
     emp_ids = [e.id for e in employees]
     all_rows = (
@@ -161,7 +163,6 @@ async def global_report(
         timezone=timezone,
     )
     return payload
-
 @router.get(
     "/global/monthly",
     response_model=GlobalReportOut,
@@ -179,9 +180,16 @@ async def global_report_monthly(
         raise HTTPException(status_code=403, detail="Admin role required")
 
     start, end = _month_bounds(year, month, timezone)
-
     employees: List[Employee] = (
-        await session.execute(select(Employee).where(Employee.active.is_(True)))
+        await session.execute(
+            select(Employee).where(
+                and_(
+                    Employee.active.is_(True),
+                    Employee.hourly_rate > 0,
+                    Employee.firebase_uid != user.get("uid"),
+                )
+            )
+        )
     ).scalars().all()
 
     if not employees:
