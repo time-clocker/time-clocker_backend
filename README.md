@@ -147,6 +147,8 @@ Ejemplo:
 
 Copia el **UID** generado.
 
+Para este caso el UID es 'dlya1REyJxS6s5OtAG2WdHGigRV2'
+
 ---
 
 ### Paso 2. Asignar rol `admin` vía script
@@ -191,7 +193,7 @@ Inserta en `employees`:
 INSERT INTO employees (id, firebase_uid, full_name, email, doc_type, doc_number, hourly_rate, active, created_at)
 VALUES (
   gen_random_uuid(),
-  'UID_COPIADO_DE_FIREBASE',
+  'dlya1REyJxS6s5OtAG2WdHGigRV2',
   'Pandora Admin',
   'pandoraadmin@example.com',
   'CC',
