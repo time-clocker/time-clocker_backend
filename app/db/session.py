@@ -1,15 +1,31 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from .base import Base
+from collections.abc import AsyncGenerator
 from app.core.config import settings
-from collections.abc import AsyncGenerator  
+import re
+
+def _make_async_url() -> str:
+    url = settings.DATABASE_URL
+
+    url = re.sub(r"^postgres://", "postgresql://", url)
+
+    url = url.replace("postgresql+psycopg2://", "postgresql+asyncpg://")
+
+    if "postgresql+asyncpg://" not in url:
+        url = url.replace("postgresql://", "postgresql+asyncpg://")
+
+    return url
+
+ASYNC_DB_URL = _make_async_url()
 
 engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=False,   
+    ASYNC_DB_URL,
+    echo=False,
+    pool_pre_ping=True,
+    future=True,
 )
 
 AsyncSessionLocal = async_sessionmaker(
-    engine,
+    bind=engine,
     expire_on_commit=False,
     class_=AsyncSession,
 )

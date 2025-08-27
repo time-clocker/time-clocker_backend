@@ -1,9 +1,9 @@
+# app/init_firebase.py
 import firebase_admin
 from firebase_admin import credentials
 from app.core.config import settings
 
 def init_firebase():
-    # Evita re-inicializar
     if firebase_admin._apps:
         return
 
