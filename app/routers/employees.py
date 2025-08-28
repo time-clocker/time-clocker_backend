@@ -12,7 +12,14 @@ from app.schemas.employee import (
     EmployeeOut,
 )
 
+from firebase_admin import auth as fb_auth
+try:
+    from firebase_admin.auth import UserNotFoundError
+except Exception:
+    from firebase_admin._auth_utils import UserNotFoundError  # type: ignore
+
 router = APIRouter(prefix="/employees", tags=["employees"])
+
 
 @router.get("/", response_model=list[EmployeeOut], summary="List Employees (admin)")
 async def list_employees(
@@ -34,6 +41,7 @@ async def list_employees(
     rows = await session.execute(stmt)
     return rows.scalars().all()
 
+
 @router.get("/{employee_id}", response_model=EmployeeOut, summary="Get Employee (admin)")
 async def get_employee(
     employee_id: UUID,
@@ -46,7 +54,8 @@ async def get_employee(
         raise HTTPException(status_code=404, detail="Employee not found")
     return emp
 
-@router.post("/", response_model=EmployeeOut, status_code=201, summary="Create Employee (admin)")
+
+@router.post("/", response_model=EmployeeOut, status_code=status.HTTP_201_CREATED, summary="Create Employee (admin)")
 async def create_employee(
     body: EmployeeCreate,
     _admin=Depends(admin_required),
@@ -68,6 +77,7 @@ async def create_employee(
     await session.refresh(emp)
     return emp
 
+
 @router.patch("/{employee_id}", response_model=EmployeeOut, summary="Update Employee (admin)")
 async def update_employee(
     employee_id: UUID,
@@ -82,6 +92,7 @@ async def update_employee(
 
     if body.full_name is not None:
         emp.full_name = body.full_name
+
     if body.email is not None:
         exists = await session.execute(
             select(Employee).where(and_(Employee.email == body.email, Employee.id != employee_id))
@@ -89,8 +100,10 @@ async def update_employee(
         if exists.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Email already in use")
         emp.email = body.email
+
     if body.hourly_rate is not None:
         emp.hourly_rate = body.hourly_rate
+
     if body.active is not None:
         emp.active = body.active
 
@@ -98,9 +111,11 @@ async def update_employee(
     await session.refresh(emp)
     return emp
 
-@router.delete("/{employee_id}", status_code=204, summary="Delete Employee (admin)")
+
+@router.delete("/{employee_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete Employee (admin)")
 async def delete_employee(
     employee_id: UUID,
+    soft: bool = Query(False, description="Si es true, solo desactiva en BD (soft delete)"),
     _admin=Depends(admin_required),
     session: AsyncSession = Depends(get_session),
 ):
@@ -108,9 +123,25 @@ async def delete_employee(
     emp = res.scalar_one_or_none()
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
+    if soft:
+        if emp.active:
+            emp.active = False
+            await session.commit()
+        return None
+    if emp.firebase_uid:
+        try:
+            fb_auth.delete_user(emp.firebase_uid)
+        except UserNotFoundError:
+            pass
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to delete user in Firebase Auth: {str(e)}",
+            )
     await session.delete(emp)
     await session.commit()
     return None
+
 
 @router.get("/me/profile", response_model=EmployeeOut, summary="My Profile (employee)")
 async def my_profile(
