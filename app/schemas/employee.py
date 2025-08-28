@@ -8,6 +8,7 @@ class EmployeeOut(BaseModel):
     firebase_uid: str
     full_name: str
     email: EmailStr
+    doc_number: str
     hourly_rate: float
     active: bool
 
