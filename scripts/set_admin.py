@@ -13,6 +13,6 @@ if not firebase_admin._apps:
         cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
     firebase_admin.initialize_app(cred)
 
-uid = "dlya1REyJxS6s5OtAG2WdHGigRV2" 
+uid = "p0iwuHgTiefrkOBayhdl2zTPu9x1" 
 auth.set_custom_user_claims(uid, {"role": "admin"})
 print(f"✅ Rol admin asignado al usuario UID={uid}")
