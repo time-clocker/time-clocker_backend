@@ -7,6 +7,7 @@ from sqlalchemy import engine_from_config, pool
 from app.db.base import Base
 from app.core.config import settings
 
+from app.models.pay_rate import PayRate 
 from app.models.employee import Employee  
 from app.models.time_entry import TimeEntry  
 from app.models.pay_rule import PayRule 
