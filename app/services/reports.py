@@ -6,11 +6,15 @@ from decimal import Decimal
 from typing import Dict, List, Tuple, Iterable
 from zoneinfo import ZoneInfo
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.time_entry import TimeEntry
 from app.models.employee import Employee
-from app.models.pay_rule import PayRule  
-DAY_START = time(6, 0, 0)   
-DAY_END = time(21, 0, 0)    
+from app.services.pay_rates_service import resolve_hourly_rate  
+
+
+DAY_START = time(6, 0, 0)    
+DAY_END = time(21, 0, 0)     
 DAILY_BASE_LIMIT_HOURS = 8.0
 
 MULTIPLIER_DAY = 1.00
@@ -55,14 +59,16 @@ def _clamp(a: datetime, b: datetime, lo: datetime, hi: datetime) -> Tuple[dateti
 
 @dataclass
 class Segment:
-    day: date          
-    kind: str          
+    day: date           # día calendario local
+    kind: str           # "day" | "night"
     hours: float
-    is_sunday: bool    
+    is_sunday: bool
 
 
 def _split_by_day_and_shift(start: datetime, end: datetime, tz: str) -> List[Segment]:
-
+    """
+    Divide un time-entry en segmentos por día y por franja (día/noche) en la zona horaria dada.
+    """
     start_local = _localize(start, tz)
     end_local = _localize(end, tz)
 
@@ -79,10 +85,10 @@ def _split_by_day_and_shift(start: datetime, end: datetime, tz: str) -> List[Seg
             continue
         lo, hi = clipped
 
-        is_sunday = day_start.isoweekday() == 7 
+        is_sunday = day_start.isoweekday() == 7
 
-        a1 = datetime.combine(day, DAY_START, tzinfo=ZoneInfo(tz))  
-        a2 = datetime.combine(day, DAY_END, tzinfo=ZoneInfo(tz))   
+        a1 = datetime.combine(day, DAY_START, tzinfo=ZoneInfo(tz))  # 06:00
+        a2 = datetime.combine(day, DAY_END, tzinfo=ZoneInfo(tz))    # 21:00
 
         if inter := _clamp(lo, hi, day_start, a1):
             segments.append(Segment(day, "night", _hours(*inter), is_sunday))
@@ -104,7 +110,7 @@ def _allocate_daily_extra(segments: List[Segment]) -> Dict[date, Dict[str, float
     out: Dict[date, Dict[str, float | bool]] = {}
 
     for d, segs in by_day.items():
-        segs = list(segs) 
+        segs = list(segs)
         sum_day = sum(s.hours for s in segs if s.kind == "day")
         sum_night = sum(s.hours for s in segs if s.kind == "night")
         total = sum_day + sum_night
@@ -136,8 +142,10 @@ def _allocate_daily_extra(segments: List[Segment]) -> Dict[date, Dict[str, float
     return out
 
 
-def _pay_bucket(bucket: Dict[str, float | bool], hourly_rate: float) -> float:
-
+def _pay_bucket_with_rate(
+    bucket: Dict[str, float | bool],
+    hourly_rate: float,
+) -> float:
     h_day = float(bucket["day"])
     h_night = float(bucket["night"])
     h_extra = float(bucket["extra"])
@@ -148,7 +156,6 @@ def _pay_bucket(bucket: Dict[str, float | bool], hourly_rate: float) -> float:
             h_day * hourly_rate * MULTIPLIER_SUNDAY_DAY +
             h_night * hourly_rate * MULTIPLIER_SUNDAY_NIGHT
         )
-
         base_total = h_day + h_night
         if base_total > 0:
             share_day = h_day / base_total
@@ -179,14 +186,15 @@ def _pay_bucket(bucket: Dict[str, float | bool], hourly_rate: float) -> float:
 
     return _round2(pay)
 
-def build_employee_report(
+async def build_employee_report(
+    *,
+    session: AsyncSession,
     employee: Employee,
     entries: List[TimeEntry],
     start: datetime,
     end: datetime,
     timezone: str,
 ) -> dict:
-
     all_segments: List[Segment] = []
     for te in entries:
         if not te.clock_out:
@@ -203,13 +211,18 @@ def build_employee_report(
     start_local = _localize(start, timezone).date()
     end_local = _localize(end, timezone).date()
 
+    tzinfo = ZoneInfo(timezone)
     for d in _daterange(start_local, end_local):
         bucket = per_day.get(d, {"day": 0.0, "night": 0.0, "extra": 0.0, "sunday": False})
         h_day = float(bucket["day"])
         h_night = float(bucket["night"])
         h_extra = float(bucket["extra"])
         h_total = _round2(h_day + h_night + h_extra)
-        day_pay = _pay_bucket(bucket, employee.hourly_rate)
+
+        day_ts = datetime.combine(d, time(0, 0), tzinfo=tzinfo)
+        rate_for_day = await resolve_hourly_rate(session, employee.id, day_ts)
+
+        day_pay = _pay_bucket_with_rate(bucket, rate_for_day)
 
         bar.append({
             "date": d.isoformat(),
@@ -228,7 +241,7 @@ def build_employee_report(
             "id": str(employee.id),
             "full_name": employee.full_name,
             "email": employee.email,
-            "hourly_rate": float(employee.hourly_rate),
+            "hourly_rate": float(employee.hourly_rate),  
         },
         "range": {
             "from": _localize(start, timezone).date().isoformat(),
@@ -249,7 +262,9 @@ def build_employee_report(
     }
 
 
-def build_global_report(
+async def build_global_report(
+    *,
+    session: AsyncSession,
     employees: List[Employee],
     entries_by_employee: Dict[str, List[TimeEntry]],
     start: datetime,
@@ -260,9 +275,11 @@ def build_global_report(
     total_hours = 0.0
     total_pay = 0.0
 
+    tzinfo = ZoneInfo(timezone)
+
     for emp in employees:
         segs: List[Segment] = []
-        for te in entries_by_employee.get(str(emp.id), []):
+        for te in entries_by_employee.get(str(emp.id), []) or []:
             if not te.clock_out:
                 continue
             segs.extend(_split_by_day_and_shift(te.clock_in, te.clock_out, timezone))
@@ -270,12 +287,24 @@ def build_global_report(
         per_day = _allocate_daily_extra(segs)
 
         di, ni, ex = 0.0, 0.0, 0.0
-        pay = 0.0
-        for bucket in per_day.values():
+        pay_emp = 0.0
+
+        start_local = _localize(start, timezone).date()
+        end_local = _localize(end, timezone).date()
+
+        for d in _daterange(start_local, end_local):
+            bucket = per_day.get(d)
+            if not bucket:
+                continue
+
             di += float(bucket["day"])
             ni += float(bucket["night"])
             ex += float(bucket["extra"])
-            pay += _pay_bucket(bucket, emp.hourly_rate)
+
+            day_ts = datetime.combine(d, time(0, 0), tzinfo=tzinfo)
+            rate_for_day = await resolve_hourly_rate(session, emp.id, day_ts)
+
+            pay_emp += _pay_bucket_with_rate(bucket, rate_for_day)
 
         row_total_h = _round2(di + ni + ex)
 
@@ -288,11 +317,11 @@ def build_global_report(
                 "extra": _round2(ex),
                 "total": row_total_h,
             },
-            "pay_total": _round2(pay),
+            "pay_total": _round2(pay_emp),
         })
 
         total_hours += row_total_h
-        total_pay += pay
+        total_pay += pay_emp
 
     return {
         "range": {
@@ -306,17 +335,3 @@ def build_global_report(
             "pay_total": _round2(total_pay),
         },
     }
-
-def apply_rule_per_entry(
-    hours: float, threshold: float, multiplier: float, hourly_rate: float
-) -> Tuple[float, float, float, float]:
-    base_hours = min(hours, threshold)
-    overtime_hours = max(0.0, hours - threshold)
-    base_amount = base_hours * hourly_rate
-    overtime_amount = overtime_hours * hourly_rate * multiplier
-    return (
-        _round2(base_hours),
-        _round2(overtime_hours),
-        _round2(base_amount),
-        _round2(overtime_amount),
-    )

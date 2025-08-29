@@ -24,7 +24,7 @@ time-clocker_backend/
 ├─ app/
 │  ├─ core/              # config, seguridad, cors
 │  ├─ db/                # base, session, init_firebase
-│  ├─ models/            # Employee, TimeEntry, PayRule
+│  ├─ models/            # Employee, TimeEntry
 │  ├─ routers/           # auth, employees, time_entries, reports
 │  ├─ schemas/           # Pydantic schemas
 │  └─ main.py
