@@ -56,8 +56,8 @@ def _week_bounds_sun_to_sat(ref: datetime, tz: str) -> tuple[datetime, datetime]
     ref_local = ref.astimezone(ZoneInfo(tz))
     d = ref_local.date()
     days_since_sunday = (ref_local.weekday() + 1) % 7
-    start_date = d - timedelta(days=days_since_sunday)  
-    end_date = start_date + timedelta(days=6)           
+    start_date = d - timedelta(days=days_since_sunday)   # Domingo
+    end_date = start_date + timedelta(days=6)            # Sábado
     tzinfo = ZoneInfo(tz)
     start_dt = datetime.combine(start_date, time(0, 0, 0), tzinfo=tzinfo)
     end_dt = datetime.combine(end_date, time(23, 59, 59), tzinfo=tzinfo)
@@ -92,7 +92,8 @@ async def employee_report(
         )
     ).scalars().all()
 
-    payload = build_employee_report(
+    payload = await build_employee_report(  # ⬅️ ahora async y con session
+        session=session,
         employee=emp,
         entries=rows,
         start=start,
@@ -155,7 +156,8 @@ async def global_report(
         key = str(r.employee_id)
         entries_by_emp.setdefault(key, []).append(r)
 
-    payload = build_global_report(
+    payload = await build_global_report(   # ⬅️ ahora async y con session
+        session=session,
         employees=employees,
         entries_by_employee=entries_by_emp,
         start=start,
@@ -217,7 +219,8 @@ async def global_report_monthly(
     for r in all_rows:
         entries_by_emp.setdefault(str(r.employee_id), []).append(r)
 
-    return build_global_report(
+    return await build_global_report(     # ⬅️ ahora async y con session
+        session=session,
         employees=employees,
         entries_by_employee=entries_by_emp,
         start=start,
@@ -258,7 +261,8 @@ async def employee_report_weekly(
         )
     ).scalars().all()
 
-    return build_employee_report(
+    return await build_employee_report(  
+        session=session,
         employee=emp,
         entries=rows,
         start=start,
@@ -298,7 +302,8 @@ async def employee_report_monthly(
         )
     ).scalars().all()
 
-    return build_employee_report(
+    return await build_employee_report(   
+        session=session,
         employee=emp,
         entries=rows,
         start=start,
@@ -337,8 +342,13 @@ async def employee_report_yearly(
             )
         ).scalars().all()
 
-        rep = build_employee_report(
-            employee=emp, entries=rows, start=start, end=end, timezone=timezone
+        rep = await build_employee_report(   
+            session=session,
+            employee=emp,
+            entries=rows,
+            start=start,
+            end=end,
+            timezone=timezone,
         )
         months.append({
             "year": year,

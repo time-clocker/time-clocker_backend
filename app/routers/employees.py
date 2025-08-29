@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 from uuid import UUID
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from app.db.session import get_session
 from app.models.employee import Employee
+from app.models.pay_rate import PayRate 
 from app.core.security import admin_required, get_current_employee
 from app.schemas.employee import (
     EmployeeCreate,
@@ -16,7 +19,7 @@ from firebase_admin import auth as fb_auth
 try:
     from firebase_admin.auth import UserNotFoundError
 except Exception:
-    from firebase_admin._auth_utils import UserNotFoundError  # type: ignore
+    from firebase_admin._auth_utils import UserNotFoundError 
 
 router = APIRouter(prefix="/employees", tags=["employees"])
 
@@ -90,6 +93,8 @@ async def update_employee(
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
 
+    prev_hourly = float(emp.hourly_rate or 0.0)
+
     if body.full_name is not None:
         emp.full_name = body.full_name
 
@@ -101,11 +106,41 @@ async def update_employee(
             raise HTTPException(status_code=409, detail="Email already in use")
         emp.email = body.email
 
+    rate_changed = False
     if body.hourly_rate is not None:
-        emp.hourly_rate = body.hourly_rate
+        new_rate = float(body.hourly_rate)
+        rate_changed = (new_rate != prev_hourly)
+        emp.hourly_rate = new_rate  
 
     if body.active is not None:
         emp.active = body.active
+
+    if rate_changed:
+        today = datetime.now(ZoneInfo("America/Bogota")).date()
+        yesterday = today - timedelta(days=1)
+        current_rate_stmt = (
+            select(PayRate)
+            .where(
+                and_(
+                    PayRate.employee_id == emp.id,
+                    PayRate.start_date <= today,
+                    or_(PayRate.end_date.is_(None), PayRate.end_date >= today),
+                )
+            )
+            .order_by(PayRate.start_date.desc())
+            .limit(1)
+        )
+        cur = (await session.execute(current_rate_stmt)).scalars().first()
+        if cur and cur.end_date is None:
+            cur.end_date = yesterday
+
+        new_pr = PayRate(
+            employee_id=emp.id,        
+            hourly_rate=emp.hourly_rate,
+            start_date=today,
+            end_date=None,              
+        )
+        session.add(new_pr)
 
     await session.commit()
     await session.refresh(emp)
