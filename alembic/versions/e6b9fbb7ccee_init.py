@@ -36,14 +36,6 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_employees_email'), 'employees', ['email'], unique=True)
     op.create_index(op.f('ix_employees_firebase_uid'), 'employees', ['firebase_uid'], unique=True)
-    op.create_table('pay_rules',
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('start_date', sa.Date(), nullable=False),
-    sa.Column('end_date', sa.Date(), nullable=False),
-    sa.Column('daily_overtime_threshold_hours', sa.Float(), nullable=False),
-    sa.Column('overtime_multiplier', sa.Float(), nullable=False),
-    sa.PrimaryKeyConstraint('id')
-    )
     op.create_table('time_entries',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('employee_id', sa.UUID(), nullable=False),
@@ -66,7 +58,6 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_time_entries_clock_out'), table_name='time_entries')
     op.drop_index(op.f('ix_time_entries_clock_in'), table_name='time_entries')
     op.drop_table('time_entries')
-    op.drop_table('pay_rules')
     op.drop_index(op.f('ix_employees_firebase_uid'), table_name='employees')
     op.drop_index(op.f('ix_employees_email'), table_name='employees')
     op.drop_table('employees')
