@@ -1,24 +1,43 @@
-# app/routers/auth.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from firebase_admin import auth as fb_auth
-import httpx
+import httpx, re
 from app.db.session import get_session
 from app.core.config import settings
 from app.models.employee import Employee
 from app.schemas.employee import EmployeeOut
-from app.schemas.auth import (
-    RegisterRequest,
-    RegisterResponse,
-    LoginRequest,
-    LoginResponse,
-)
+from app.schemas.auth import RegisterRequest, RegisterResponse, LoginRequest, LoginResponse
 from app.core.security import get_current_user  
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+def validate_password(password: str):
+    """
+    Valida que la contraseña cumpla con:
+    - Mínimo 6 caracteres
+    - Al menos una mayúscula
+    - Al menos una minúscula
+    - Al menos un número
+    - Al menos un símbolo especial
+    Lanza HTTPException 422 si no cumple.
+    """
+    if len(password) < 6:
+        raise HTTPException(status_code=422, detail="Password muy corta (<6)")
+    if not re.search(r"[A-Z]", password):
+        raise HTTPException(status_code=422, detail="Password sin mayúscula")
+    if not re.search(r"[a-z]", password):
+        raise HTTPException(status_code=422, detail="Password sin minúscula")
+    if not re.search(r"[0-9]", password):
+        raise HTTPException(status_code=422, detail="Password sin número")
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        raise HTTPException(status_code=422, detail="Password sin símbolo")
 
 async def _firebase_sign_in(email: str, password: str) -> dict:
+    """
+    Inicia sesión en Firebase y retorna los tokens.
+    Lanza HTTPException 400 si falla.
+    """
     url = (
         f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
         f"?key={settings.FIREBASE_WEB_API_KEY}"
@@ -30,9 +49,11 @@ async def _firebase_sign_in(email: str, password: str) -> dict:
         raise HTTPException(status_code=400, detail=r.json())
     return r.json()
 
-
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest) -> LoginResponse:
+    """
+    Endpoint de login. Retorna tokens de Firebase y datos del usuario.
+    """
     data = await _firebase_sign_in(body.email, body.password)
     return LoginResponse(
         idToken=data.get("idToken"),
@@ -42,11 +63,17 @@ async def login(body: LoginRequest) -> LoginResponse:
         localId=data.get("localId"),
     )
 
-
 @router.post("/register", response_model=RegisterResponse, status_code=201)
-async def register(
-    body: RegisterRequest, session: AsyncSession = Depends(get_session)
-) -> RegisterResponse:
+async def register(body: RegisterRequest, session: AsyncSession = Depends(get_session)) -> RegisterResponse:
+    """
+    Registra un nuevo empleado.
+    Valida contraseña, email y documento.
+    Crea usuario en Firebase y registro en DB.
+    Retorna tokens y datos del empleado.
+    Lanza HTTPException 422 si la contraseña no cumple reglas.
+    Lanza HTTPException 409 si email o documento ya existen.
+    """
+    validate_password(body.password)
 
     q = await session.execute(select(Employee).where(Employee.email == body.email))
     if q.scalar_one_or_none():
@@ -55,6 +82,7 @@ async def register(
     q = await session.execute(select(Employee).where(Employee.doc_number == body.doc_number))
     if q.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Document already registered")
+
     try:
         fb_user = fb_auth.create_user(
             email=body.email,
@@ -64,6 +92,7 @@ async def register(
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Firebase: {e}")
+
     try:
         emp = Employee(
             firebase_uid=fb_user.uid,
@@ -83,6 +112,7 @@ async def register(
         except Exception:
             pass
         raise HTTPException(status_code=400, detail=f"DB error: {e}")
+
     tokens = await _firebase_sign_in(body.email, body.password)
 
     return RegisterResponse(
@@ -94,7 +124,9 @@ async def register(
         localId=tokens.get("localId"),
     )
 
-
 @router.get("/me")
 async def me(user: dict = Depends(get_current_user)):
+    """
+    Retorna información del usuario actualmente autenticado.
+    """
     return user
