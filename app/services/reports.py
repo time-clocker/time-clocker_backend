@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.time_entry import TimeEntry
 from app.models.employee import Employee
-from app.models.pay_rule import PayRule  
 from app.services.pay_rates_service import resolve_hourly_rate  
 
 
@@ -336,17 +335,3 @@ async def build_global_report(
             "pay_total": _round2(total_pay),
         },
     }
-
-def apply_rule_per_entry(
-    hours: float, threshold: float, multiplier: float, hourly_rate: float
-) -> Tuple[float, float, float, float]:
-    base_hours = min(hours, threshold)
-    overtime_hours = max(0.0, hours - threshold)
-    base_amount = base_hours * hourly_rate
-    overtime_amount = overtime_hours * hourly_rate * multiplier
-    return (
-        _round2(base_hours),
-        _round2(overtime_hours),
-        _round2(base_amount),
-        _round2(overtime_amount),
-    )

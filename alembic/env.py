@@ -10,7 +10,6 @@ from app.core.config import settings
 from app.models.pay_rate import PayRate 
 from app.models.employee import Employee  
 from app.models.time_entry import TimeEntry  
-from app.models.pay_rule import PayRule 
 
 config = context.config
 if config.config_file_name is not None:
